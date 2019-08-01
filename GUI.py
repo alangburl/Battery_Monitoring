@@ -17,6 +17,9 @@ from matplotlib.figure import Figure
 from PyQt5.QtGui import QFont,QIcon, QImage, QPalette, QBrush
 from PyQt5.QtCore import Qt
 
+import Adafruit_ADS1x15
+
+
 class Monitor(QMainWindow):
     '''GUI for use in monitoring the life a a better cell by 
     means of a RPi 3b and a ADS 1015
@@ -46,6 +49,12 @@ class Monitor(QMainWindow):
         self.run_time.setFont(self.font)
         self.run_time.setReadOnly(True)
         self.run_time.setToolTip('Total run time')
+        
+        self.run_=QLineEdit(self)
+        self.run_.setSizePolicy(self.size_policy,self.size_policy)
+        self.run_.setFont(self.font)
+        self.run_.setReadOnly(True)
+        self.run_.setToolTip('Last Read Voltage')
         
         self.start=QPushButton('Start',self)
         self.start.setSizePolicy(self.size_policy,self.size_policy)
@@ -83,6 +92,7 @@ class Monitor(QMainWindow):
         self.layout.addWidget(self.start,2,0)
         self.layout.addWidget(self.pause,1,1)
         self.layout.addWidget(self.resume,2,1)
+        self.layout.addWidget(self.run_,0,3)
         self.setLayout(self.layout)
         
         layout=QWidget()
@@ -116,7 +126,7 @@ class Monitor(QMainWindow):
         delay=int(self.polling_frequency.currentText())
         self.acquisition=Data_Acquisition(delay,time.time(),self.file_path)
         self.acquisition.start()
-#        self.acquisition.value.connect(self.value)
+        self.acquisition.values.connect(self.run_.setText)
         self.acquisition.timing.connect(self.run_time.setText)
         
     def pausing(self):
@@ -132,6 +142,7 @@ class Monitor(QMainWindow):
         self.acquisition=Data_Acquisition(delay,time.time()-prior_delta-delay,self.file_path)
         self.acquisition.start() 
         self.acquisition.timing.connect(self.run_time.setText)
+        self.acquisition.values.connect(self.run_.setText)
         
     def file_location(self):
         file_path,name=QFileDialog.getSaveFileName(self,'File name',os.getcwd(),"Text File(*.txt);; Comma Delimited (*.csv)")
@@ -139,7 +150,7 @@ class Monitor(QMainWindow):
         self.start.setEnabled(True)
             
 class Data_Acquisition(QThread):
-#    value=pyqtSignal(str)
+    values=pyqtSignal(str)
     timing=pyqtSignal(str)
     def __init__(self,polling_rate,start_time,file_location,parent=None):
         QThread.__init__(self, parent=parent)
@@ -149,6 +160,11 @@ class Data_Acquisition(QThread):
         self.running=True
         
     def run(self):
+        adc=Adafruit_ADS1x15.ADS1015()
+        span=6.144*2
+        states=2048+2047
+        resolution=span/states
+        
         if os.path.exists(self.file_location):
             f=open(self.file_location,'a')
         else:
@@ -157,12 +173,13 @@ class Data_Acquisition(QThread):
         loc=0
         while self.running and average(moving)>4:
             self.delta=time.time()-self.start_time
-#            self.value.emit(adc.read_difference(0,2/3))
-            self.value=1
+            self.value=adc.read_adc_difference(0,2/3)*resolution
+##            self.value=1
             moving[loc]=self.value
             loc+=1
             if loc==4:
                 loc=0
+            self.values.emit('{:.4f}'.format(self.value))        
             self.timing.emit('{:.4f}'.format(self.delta))
             f.write('{:.4f},{:.4f}\n'.format(self.delta,self.value))
             time.sleep(self.polling_rate)
